@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta charset="utf-8">
+    <title>Search over Google Maps</title>
+    <style>
+        /* Always set the map height explicitly to define the size of the div
+         * element that contains the map. */
+        #map {
+            height: 100%;
+        }
+        /* Optional: Makes the sample page fill the window. */
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        .controls {
+            margin-top: 10px;
+            border: 1px solid transparent;
+            border-radius: 2px 0 0 2px;
+            box-sizing: border-box;
+            -moz-box-sizing: border-box;
+            height: 32px;
+            outline: none;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        #city-input, .ui-autocomplete-input, #place-input {
+            background-color: #fff;
+            font-family: Roboto;
+            font-size: 15px;
+            font-weight: 300;
+            margin-left: 12px;
+            padding: 0 11px 0 13px;
+            text-overflow: ellipsis;
+            width: 300px;
+        }
+
+        .btn {
+            font-size: 15px;
+            font-weight: 300;
+            margin-left: 12px;
+            padding: 0 11px 0 13px;
+            width: 150px;
+        }
+
+        #city-input:focus, #place-input:focus, .ui-autocomplete-input:focus{
+            border-color: #4d90fe;
+        }
+
+        .pac-container {
+            font-family: Roboto;
+        }
+
+        #type-selector {
+            color: #fff;
+            background-color: #4d90fe;
+            padding: 5px 11px 0px 11px;
+        }
+
+        #type-selector label {
+            font-family: Roboto;
+            font-size: 13px;
+            font-weight: 300;
+        }
+        #target {
+            width: 345px;
+        }
+    </style>
+    <link rel="stylesheet" href="asset/css/bootstrap.min.css">
+    <link rel="stylesheet" href="asset/css/jquery-ui.css">
+    <link rel="stylesheet" href="asset/css/autocomplete-country.css">
+</head>
+<body>
+<div id="input-group">
+    <select name="Country" id="country-selector" class="select-autocomplete controls" autofocus="autofocus" autocorrect="off" autocomplete="off"></select>
+    <input id="city-input" class="controls" type="text" placeholder="Enter a city" autocomplete="off"/>
+    <input id="place-input" class="controls" type="text" placeholder="Type here to search" autocomplete="off"/>
+    <button id="save-button" class="btn btn-info ">Save</button>
+    <button id="export-button" class="btn btn-info ">Export</button>
+</div>
+<div id="map"></div>
+
+<!-- Modal -->
+<div class="modal fade" id="myModal" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="myModalLabel"><i class="fa fa-clock-o"></i> Please Wait</h4>
+            </div>
+            <div class="modal-body center-block">
+                <p>Gathering data from Google Maps...</p>
+                <div class="progress">
+                    <div class="progress-bar bar progress-bar-striped progress-bar-animated" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100" style="width: 100%;">
+
+                    </div>
+                </div>
+            </div>
+        </div><!-- /.modal-content -->
+    </div><!-- /.modal-dialog -->
+</div><!-- /.modal -->
+
+<script src="asset/js/jquery-1.11.1.min.js"></script>
+<script src="asset/js/jquery-ui.min.js"></script>
+<!--<script src="asset/js/jquery-3.3.1.min.js"></script>-->
+<script src="asset/js/bootstrap.min.js"></script>
+<script src="asset/js/countries.js"></script>
+<script src="asset/js/jquery.select-to-autocomplete.js"></script>
+
+<script>
+    // This example adds a search box to a map, using the Google Place Autocomplete
+    // feature. People can enter geographical searches. The search box will return a
+    // pick list containing a mix of places and predicted search terms.
+
+    // This example requires the Places library. Include the libraries=places
+    // parameter when you first load the API. For example:
+    // <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places">
+
+    var fetch10result, sendData, place_index;
+    var remainCount, totalCount;
+
+    var centerLat = 34.170360, centerLng = -118.518241;
+    function initAutocomplete() {
+        var map = new google.maps.Map(document.getElementById('map'), {
+            center: {lat: centerLat, lng: centerLng},
+            zoom: 13,
+            mapTypeId: 'roadmap'
+        });
+
+        var service = new google.maps.places.PlacesService(map);
+
+        function processPlaces(places) {
+            totalCount = places.length;
+            remainCount = totalCount;
+
+            if (places.length == 0) {
+                return;
+            }
+
+            // Clear out the old markers.
+            markers.forEach(function(marker) {
+                marker.setMap(null);
+            });
+            markers = [];
+
+            // For each place, get the icon, name and location.
+            var bounds = new google.maps.LatLngBounds();
+            places.forEach(function(place) {
+                if (!place.geometry) {
+                    console.log("Returned place contains no geometry");
+                    return;
+                }
+                var icon = {
+                    url: place.icon,
+                    size: new google.maps.Size(71, 71),
+                    origin: new google.maps.Point(0, 0),
+                    anchor: new google.maps.Point(17, 34),
+                    scaledSize: new google.maps.Size(25, 25)
+                };
+
+                // Create a marker for each place.
+                markers.push(new google.maps.Marker({
+                    map: map,
+                    icon: icon,
+                    title: place.name,
+                    position: place.geometry.location
+                }));
+
+                if (place.geometry.viewport) {
+                    // Only geocodes have viewport.
+                    bounds.union(place.geometry.viewport);
+                } else {
+                    bounds.extend(place.geometry.location);
+                }
+            });
+        }
+
+        // Create the search box and link it to the UI element.
+        var cityInput = document.getElementById('city-input');
+        var placeInput = document.getElementById('place-input');
+        var inputGroup = document.getElementById('input-group');
+
+        $('.ui-autocomplete-input').blur(function() {
+            var country = $(this)[0].value;
+            var code = getCode(country);
+            console.log(code);
+            if(code === 'all') {
+                cityBox.setComponentRestrictions();
+            } else {
+                cityBox.setComponentRestrictions({'country': code});
+            }
+        });
+
+        var cityBox = new google.maps.places.Autocomplete(cityInput, {types: ['(cities)']/*, componentRestrictions: {country: 'US'}*/});
+        cityBox.addListener('place_changed', function(){
+            var place = cityBox.getPlace();
+            if(place.geometry) {
+                map.panTo(place.geometry.location);
+                map.setZoom(13);
+                placeBox.setBounds(map.getBounds());
+            } else {
+                cityInput.value = '';
+            }
+        });
+
+        var placeBox = new google.maps.places.SearchBox(placeInput);
+        map.controls[google.maps.ControlPosition.TOP_LEFT].push(inputGroup);
+
+        // Bias the SearchBox results towards current map's viewport.
+        map.addListener('bounds_changed', function() {
+            placeBox.setBounds(map.getBounds());
+            console.log(map.getBounds());
+        });
+
+        var markers = [];
+        var places = [];
+        // Listen for the event fired when the user selects a prediction and retrieve
+        // more details for that place.
+
+        $('#place-input').on("keypress", function (e) {
+            if(e.keyCode == 13) {
+                console.log("enter");
+
+                var request = {
+                    query: placeInput.value,
+                    bounds: map.getBounds()
+                };
+
+                service.textSearch(request, processPlaces);
+
+                return false;
+            }
+        })
+
+        placeBox.addListener('places_changed', function() {
+            console.log("passed");
+            places = placeBox.getPlaces();
+
+            processPlaces(places);
+//            map.fitBounds(bounds);
+        });
+
+        $('#export-button').click(function () {
+            ///////////////////////// Fetching data for every places in detail //////////////////////
+            var postData = [];
+
+            sendData = function () {
+                $.ajax({
+                    url: "saveExcel.php",
+                    type: "POST",
+                    data: {json: JSON.stringify(postData)},
+                    dataType: "JSON",
+                    success: function (resp) {
+                        if (resp.url != undefined) {
+
+                            var link = document.createElement("a");
+                            link.download = "result.xls";
+                            link.href = resp.url;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            delete link;
+//                            window.open(resp.url);
+                        }
+                    }
+                });
+            };
+
+            place_index = 0;
+            fetch10result = function() {
+                while(place_index < places.length) {
+                    var request = {
+                        placeId: places[place_index].place_id
+                    };
+                    service.getDetails(request, callback);
+                    place_index++;
+                    if(place_index % 10 == 0) {
+                        break;
+                    }
+                }
+                if(place_index == places.length) {
+                    setTimeout("sendData()", 2000);
+                    return;
+                }
+                if(place_index % 10 == 0) {
+                    setTimeout("fetch10result()", 5000);
+                }
+            };
+
+            $('#myModal').modal({
+                backdrop: 'static',
+                keyboard: false
+            });
+
+            fetch10result();
+
+            function callback(place, status) {
+                if(status == google.maps.places.PlacesServiceStatus.OK) {
+
+                    var newData = {};
+
+                    newData["name"] = place.name;
+
+                    for(var i = 0; i < place.address_components.length; i++) {
+
+                        var component = place.address_components[i];
+
+                        if(component.types.indexOf("country") != -1) {
+                            newData["country"] = component.long_name;
+                        } else if(component.types.indexOf("locality") != -1) {
+                            newData["city"] = component.long_name;
+                        }
+                    }
+
+                    newData["phone"] = place.international_phone_number;
+
+                    newData["rating"] = place.rating;
+                    //
+                    // newData["reviews"] = place.reviews;
+
+                    newData["type"] = place.types.join(',');
+
+                    newData["vicinity"] = place.vicinity;
+
+                    newData["website"] = place.website;
+
+                    newData["url"] = place.url;
+
+                    postData.push(newData);
+                    remainCount--;
+                    // if(remainCount == 0) {
+                    //     $.ajax({
+                    //         url: "saveExcel.php",
+                    //         type: "POST",
+                    //         data: {json: JSON.stringify(postData)},
+                    //         dataType: "JSON",
+                    //         success: function(resp) {
+                    //             if(resp.url != undefined) {
+                    //                 window.location.href = resp.url;
+                    //             }
+                    //         }
+                    //     });
+                    // }
+                }
+            }
+
+        });
+
+        if(navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(function(position) {
+                console.log(position.coords);
+                map.setCenter(new google.maps.LatLng(position.coords.latitude, position.coords.longitude));
+            });
+        }
+    }
+
+    $('#myModal').on('shown.bs.modal', function () {
+
+        var progress = setInterval(function() {
+            var $bar = $('.bar');
+
+            // perform processing logic here
+
+//            $bar.width($bar.width()+50);
+ //           $bar.width(500.0 * (totalCount - remainCount) / totalCount);
+            if(remainCount < 3) {
+                clearInterval(progress);
+                $('.progress').removeClass('active');
+                $('#myModal').modal('hide');
+//                $bar.width(0);
+            }
+
+//            $bar.text($bar.width()/5 + "%");
+            $bar.text("Please wait...");
+//            $bar.text("" + (totalCount - remainCount) + "/" + totalCount + "places are fetched.");
+        }, 500);
+
+
+    });
+
+    $('#showModal').on('click', function() {
+        $('#myModal').modal({
+            backdrop: 'static',
+            keyboard: false
+        });
+    });
+</script>
+
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdl0BStKLZbeTcYR83CDTiSdled1QGqnk&libraries=places&callback=initAutocomplete"
+        async defer></script>
+</body>
+</html>
