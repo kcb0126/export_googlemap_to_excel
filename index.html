@@ -91,7 +91,7 @@
                 <h4 class="modal-title" id="myModalLabel"><i class="fa fa-clock-o"></i> Please Wait</h4>
             </div>
             <div class="modal-body center-block">
-                <p>Gathering data from Google Maps...</p>
+                <p id="waitingMsg">Gathering data from Google Maps...</p>
                 <div class="progress">
                     <div class="progress-bar bar progress-bar-striped progress-bar-animated" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100" style="width: 100%;">
 
@@ -118,8 +118,10 @@
     // parameter when you first load the API. For example:
     // <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places">
 
-    var fetch10result, sendData, place_index;
+    var fetchOneByOne, sendData, place_index;
     var remainCount, totalCount;
+    var postData = [];
+    var fetchedIds = [];
 
     var centerLat = 34.170360, centerLng = -118.518241;
     function initAutocomplete() {
@@ -132,6 +134,8 @@
         var service = new google.maps.places.PlacesService(map);
 
         function processPlaces(places) {
+            placesToFetch = places;
+
             totalCount = places.length;
             remainCount = totalCount;
 
@@ -149,7 +153,6 @@
             var bounds = new google.maps.LatLngBounds();
             places.forEach(function(place) {
                 if (!place.geometry) {
-                    console.log("Returned place contains no geometry");
                     return;
                 }
                 var icon = {
@@ -185,7 +188,6 @@
         $('.ui-autocomplete-input').blur(function() {
             var country = $(this)[0].value;
             var code = getCode(country);
-            console.log(code);
             if(code === 'all') {
                 cityBox.setComponentRestrictions();
             } else {
@@ -211,17 +213,17 @@
         // Bias the SearchBox results towards current map's viewport.
         map.addListener('bounds_changed', function() {
             placeBox.setBounds(map.getBounds());
-            console.log(map.getBounds());
         });
 
         var markers = [];
-        var places = [];
+        var placesToFetch = [];
+        var totalPlaces = [];
+        var fetched = [];
         // Listen for the event fired when the user selects a prediction and retrieve
         // more details for that place.
 
         $('#place-input').on("keypress", function (e) {
             if(e.keyCode == 13) {
-                console.log("enter");
 
                 var request = {
                     query: placeInput.value,
@@ -235,16 +237,47 @@
         })
 
         placeBox.addListener('places_changed', function() {
-            console.log("passed");
-            places = placeBox.getPlaces();
-
-            processPlaces(places);
+            processPlaces(placesToFetch);
 //            map.fitBounds(bounds);
         });
 
-        $('#export-button').click(function () {
+        $('#export-button').click(function() {
+            $('#waitingMsg').html("Exporting data to excel document...")
+
+            $('#myModal').modal({
+                backdrop: 'static',
+                keyboard: false
+            });
+
+            $.ajax({
+                url: "saveExcel.php",
+                type: "POST",
+                data: {json: JSON.stringify(postData)},
+                dataType: "JSON",
+                success: function (resp) {
+                    if (resp.url != undefined) {
+
+                        var link = document.createElement("a");
+                        link.download = "result.xls";
+                        link.href = resp.url;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        delete link;
+//                            window.open(resp.url);
+                        $('#myModal').modal('hide');
+
+                    }
+                }
+            });
+
+        });
+
+        $('#save-button').click(function () {
             ///////////////////////// Fetching data for every places in detail //////////////////////
-            var postData = [];
+
+            fetched = new Array(placesToFetch.length);
+            fetched.fill(false);
 
             sendData = function () {
                 $.ajax({
@@ -268,36 +301,40 @@
                 });
             };
 
-            place_index = 0;
-            fetch10result = function() {
-                while(place_index < places.length) {
-                    var request = {
-                        placeId: places[place_index].place_id
-                    };
-                    service.getDetails(request, callback);
-                    place_index++;
-                    if(place_index % 10 == 0) {
+            fetchOneByOne = function() {
+                var i;
+                for(i = 0; i < placesToFetch.length; i++) {
+                    if(!fetched[i]) {
+                        fetched[i] = true;
+                        if(fetchedIds.includes(placesToFetch[i].place_id)) {
+                            continue;
+                        }
+                        fetchedIds.push(placesToFetch[i].place_id);
+                        var request = {
+                            placeId: placesToFetch[i].place_id
+                        };
+                        service.getDetails(request, callback);
                         break;
                     }
                 }
-                if(place_index == places.length) {
-                    setTimeout("sendData()", 2000);
-                    return;
-                }
-                if(place_index % 10 == 0) {
-                    setTimeout("fetch10result()", 5000);
+                if(i == placesToFetch.length) {
+                    $('#myModal').modal('hide');
                 }
             };
+
+            $('#waitingMsg').html("Saving search result...")
 
             $('#myModal').modal({
                 backdrop: 'static',
                 keyboard: false
             });
 
-            fetch10result();
+            fetchOneByOne();
 
             function callback(place, status) {
                 if(status == google.maps.places.PlacesServiceStatus.OK) {
+
+                    console.log(place);
 
                     var newData = {};
 
@@ -329,20 +366,8 @@
                     newData["url"] = place.url;
 
                     postData.push(newData);
-                    remainCount--;
-                    // if(remainCount == 0) {
-                    //     $.ajax({
-                    //         url: "saveExcel.php",
-                    //         type: "POST",
-                    //         data: {json: JSON.stringify(postData)},
-                    //         dataType: "JSON",
-                    //         success: function(resp) {
-                    //             if(resp.url != undefined) {
-                    //                 window.location.href = resp.url;
-                    //             }
-                    //         }
-                    //     });
-                    // }
+
+                    setTimeout("fetchOneByOne()", 500);
                 }
             }
 
@@ -350,33 +375,12 @@
 
         if(navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(function(position) {
-                console.log(position.coords);
                 map.setCenter(new google.maps.LatLng(position.coords.latitude, position.coords.longitude));
             });
         }
     }
 
     $('#myModal').on('shown.bs.modal', function () {
-
-        var progress = setInterval(function() {
-            var $bar = $('.bar');
-
-            // perform processing logic here
-
-//            $bar.width($bar.width()+50);
- //           $bar.width(500.0 * (totalCount - remainCount) / totalCount);
-            if(remainCount < 3) {
-                clearInterval(progress);
-                $('.progress').removeClass('active');
-                $('#myModal').modal('hide');
-//                $bar.width(0);
-            }
-
-//            $bar.text($bar.width()/5 + "%");
-            $bar.text("Please wait...");
-//            $bar.text("" + (totalCount - remainCount) + "/" + totalCount + "places are fetched.");
-        }, 500);
-
 
     });
 
